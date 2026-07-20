@@ -1,0 +1,1817 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoxelCraft - Minecraft-like em JS Puro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            overflow: hidden; 
+            background: #000;
+            font-family: 'Courier New', monospace;
+            user-select: none;
+        }
+        canvas { display: block; }
+        
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        /* HUD */
+        #hud {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        #hotbar {
+            display: flex;
+            gap: 2px;
+            background: rgba(0,0,0,0.5);
+            padding: 4px;
+            border-radius: 4px;
+        }
+        
+        .hotbar-slot {
+            width: 40px;
+            height: 40px;
+            border: 2px solid #555;
+            background: rgba(100,100,100,0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            color: white;
+            text-shadow: 1px 1px 2px black;
+        }
+        
+        .hotbar-slot.selected {
+            border-color: white;
+            background: rgba(150,150,150,0.5);
+        }
+        
+        #stats {
+            display: flex;
+            gap: 20px;
+            color: white;
+            text-shadow: 1px 1px 2px black;
+            font-size: 14px;
+        }
+        
+        .stat-bar {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .bar-container {
+            width: 100px;
+            height: 10px;
+            background: #333;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        
+        .bar-fill {
+            height: 100%;
+            transition: width 0.3s;
+        }
+        
+        #health-bar { background: #e74c3c; }
+        #hunger-bar { background: #f39c12; }
+        
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+        }
+        
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: white;
+            mix-blend-mode: difference;
+        }
+        
+        #crosshair::before {
+            width: 2px;
+            height: 20px;
+            left: 9px;
+        }
+        
+        #crosshair::after {
+            width: 20px;
+            height: 2px;
+            top: 9px;
+        }
+        
+        /* Screens */
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            color: white;
+        }
+        
+        .hidden { display: none !important; }
+        
+        h1 { font-size: 48px; margin-bottom: 20px; text-shadow: 3px 3px 6px black; }
+        h2 { font-size: 32px; margin-bottom: 15px; }
+        
+        button {
+            padding: 15px 40px;
+            font-size: 18px;
+            margin: 10px;
+            background: #5a5a5a;
+            color: white;
+            border: 2px solid #888;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: #7a7a7a;
+            border-color: white;
+        }
+        
+        /* Crafting */
+        #crafting-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 60px);
+            gap: 5px;
+            margin: 20px;
+        }
+        
+        .craft-slot {
+            width: 60px;
+            height: 60px;
+            border: 2px solid #555;
+            background: rgba(100,100,100,0.3);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 12px;
+            color: white;
+            cursor: pointer;
+        }
+        
+        .craft-slot:hover { background: rgba(150,150,150,0.5); }
+        .craft-slot .recipe-icon { font-size: 24px; }
+        .craft-slot .recipe-name { font-size: 10px; margin-top: 2px; }
+        
+        /* Info panel */
+        #info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 12px;
+            text-shadow: 1px 1px 2px black;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        /* Death screen */
+        #death-screen h1 { color: #e74c3c; }
+        
+        /* Loading */
+        #loading {
+            background: #1a1a2e;
+        }
+        
+        .loading-bar {
+            width: 300px;
+            height: 20px;
+            background: #333;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 20px;
+        }
+        
+        .loading-progress {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            width: 0%;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <div id="info-panel">
+            <div>FPS: <span id="fps">0</span></div>
+            <div>Chunks: <span id="chunk-count">0</span></div>
+            <div>Pos: <span id="position">0, 0, 0</span></div>
+            <div>Bioma: <span id="biome">-</span></div>
+            <div>Tempo: <span id="time-display">Dia</span></div>
+        </div>
+        
+        <div id="crosshair"></div>
+        
+        <div id="hud">
+            <div id="stats">
+                <div class="stat-bar">
+                    <span>❤️</span>
+                    <div class="bar-container">
+                        <div id="health-bar" class="bar-fill" style="width: 100%"></div>
+                    </div>
+                </div>
+                <div class="stat-bar">
+                    <span>🍖</span>
+                    <div class="bar-container">
+                        <div id="hunger-bar" class="bar-fill" style="width: 100%"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="hotbar"></div>
+        </div>
+    </div>
+    
+    <!-- Main Menu -->
+    <div id="menu-screen" class="screen">
+        <h1>🎮 VOXELCRAFT</h1>
+        <p style="margin-bottom: 30px; opacity: 0.8;">Um mundo infinito te espera...</p>
+        <button onclick="game.startNewGame()">🆕 Novo Jogo</button>
+        <button onclick="game.loadGame()">📂 Carregar Jogo</button>
+        <div style="margin-top: 30px; font-size: 14px; opacity: 0.6;">
+            WASD: Mover | Espaço: Pular | Shift: Correr<br>
+            Clique: Quebrar | Direito: Colocar | 1-9: Selecionar bloco<br>
+            E: Inventário/Crafting | ESC: Pausa
+        </div>
+    </div>
+    
+    <!-- Pause Screen -->
+    <div id="pause-screen" class="screen hidden">
+        <h2>⏸️ PAUSA</h2>
+        <button onclick="game.resume()">▶️ Continuar</button>
+        <button onclick="game.saveAndQuit()">💾 Salvar e Sair</button>
+    </div>
+    
+    <!-- Crafting Screen -->
+    <div id="crafting-screen" class="screen hidden">
+        <h2>🔨 CRAFTING</h2>
+        <div id="crafting-grid"></div>
+        <button onclick="game.toggleCrafting()">✖️ Fechar</button>
+    </div>
+    
+    <!-- Death Screen -->
+    <div id="death-screen" class="screen hidden">
+        <h1>💀 VOCÊ MORREU!</h1>
+        <p id="death-reason" style="margin-bottom: 20px;"></p>
+        <button onclick="game.respawn()">🔄 Renascer</button>
+    </div>
+    
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="screen hidden">
+        <h2>🌍 Gerando Mundo...</h2>
+        <div class="loading-bar">
+            <div id="loading-progress" class="loading-progress"></div>
+        </div>
+        <p id="loading-text">Preparando terreno...</p>
+    </div>
+
+    <script>
+// ============================================
+// VOXELCRAFT - Minecraft-like em JS Puro
+// ============================================
+
+// Constantes do jogo
+const BLOCK_SIZE = 1;
+const CHUNK_SIZE = 16;
+const RENDER_DISTANCE = 4;
+const GRAVITY = 25;
+const PLAYER_SPEED = 5;
+const SPRINT_SPEED = 8;
+const JUMP_FORCE = 8;
+const REACH = 5;
+
+// Tipos de blocos
+const BLOCKS = {
+    AIR: 0,
+    GRASS: 1,
+    DIRT: 2,
+    STONE: 3,
+    WOOD: 4,
+    LEAVES: 5,
+    SAND: 6,
+    WATER: 7,
+    SNOW: 8,
+    COAL_ORE: 9,
+    IRON_ORE: 10,
+    PLANKS: 11,
+    CRAFTING_TABLE: 12,
+    BEDROCK: 13,
+    LOG: 14
+};
+
+// Cores dos blocos para rendering
+const BLOCK_COLORS = {
+    [BLOCKS.GRASS]: { top: '#5dbb63', side: '#8b5a2b', bottom: '#8b5a2b' },
+    [BLOCKS.DIRT]: { all: '#8b5a2b' },
+    [BLOCKS.STONE]: { all: '#7d7d7d' },
+    [BLOCKS.WOOD]: { all: '#6b4423' },
+    [BLOCKS.LOG]: { top: '#a0785a', side: '#5c4033' },
+    [BLOCKS.LEAVES]: { all: '#3d7c3d' },
+    [BLOCKS.SAND]: { all: '#e6d5a8' },
+    [BLOCKS.WATER]: { all: '#4a90c2' },
+    [BLOCKS.SNOW]: { all: '#fffafa' },
+    [BLOCKS.COAL_ORE]: { all: '#4a4a4a' },
+    [BLOCKS.IRON_ORE]: { all: '#d4a574' },
+    [BLOCKS.PLANKS]: { all: '#c4a574' },
+    [BLOCKS.CRAFTING_TABLE]: { all: '#8b6914' },
+    [BLOCKS.BEDROCK]: { all: '#2d2d2d' }
+};
+
+// Biomas
+const BIOMES = {
+    FOREST: { name: 'Floresta', grassColor: '#5dbb63', treeChance: 0.15 },
+    DESERT: { name: 'Deserto', grassColor: '#e6d5a8', treeChance: 0.02 },
+    SNOW: { name: 'Neve', grassColor: '#fffafa', treeChance: 0.08 }
+};
+
+// Receitas de crafting
+const RECIPES = [
+    { result: BLOCKS.PLANKS, count: 4, ingredients: { [BLOCKS.LOG]: 1 } },
+    { result: BLOCKS.CRAFTING_TABLE, count: 1, ingredients: { [BLOCKS.PLANKS]: 4 } },
+    { result: BLOCKS.STONE, count: 1, ingredients: { [BLOCKS.DIRT]: 4 } },
+    { result: BLOCKS.WOOD, count: 1, ingredients: { [BLOCKS.LOG]: 4, [BLOCKS.PLANKS]: 4 } },
+    { result: BLOCKS.LEAVES, count: 2, ingredients: { [BLOCKS.LOG]: 2 } }
+];
+
+// Nomes dos blocos
+const BLOCK_NAMES = {
+    [BLOCKS.GRASS]: 'Grama',
+    [BLOCKS.DIRT]: 'Terra',
+    [BLOCKS.STONE]: 'Pedra',
+    [BLOCKS.WOOD]: 'Tronco',
+    [BLOCKS.LEAVES]: 'Folhas',
+    [BLOCKS.SAND]: 'Areia',
+    [BLOCKS.SNOW]: 'Neve',
+    [BLOCKS.COAL_ORE]: 'Carvão',
+    [BLOCKS.IRON_ORE]: 'Ferro',
+    [BLOCKS.PLANKS]: 'Tábuas',
+    [BLOCKS.CRAFTING_TABLE]: 'Bancada'
+};
+
+// ============================================
+// Noise Generator (Simplex-like)
+// ============================================
+class NoiseGenerator {
+    constructor(seed = Math.random() * 10000) {
+        this.seed = seed;
+        this.permutation = [];
+        for (let i = 0; i < 512; i++) {
+            this.permutation[i] = Math.floor(this.sin(i * seed) * 1000) % 256;
+        }
+    }
+    
+    sin(x) {
+        return Math.sin(x + this.seed);
+    }
+    
+    fade(t) {
+        return t * t * t * (t * (t * 6 - 15) + 10);
+    }
+    
+    lerp(a, b, t) {
+        return a + t * (b - a);
+    }
+    
+    grad(hash, x, y) {
+        const h = hash & 3;
+        const u = h < 2 ? x : y;
+        const v = h < 2 ? y : x;
+        return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+    }
+    
+    noise2D(x, y) {
+        const X = Math.floor(x) & 255;
+        const Y = Math.floor(y) & 255;
+        
+        x -= Math.floor(x);
+        y -= Math.floor(y);
+        
+        const u = this.fade(x);
+        const v = this.fade(y);
+        
+        const A = this.permutation[X] + Y;
+        const B = this.permutation[X + 1] + Y;
+        
+        return this.lerp(
+            this.lerp(this.grad(this.permutation[A], x, y), this.grad(this.permutation[B], x - 1, y), u),
+            this.lerp(this.grad(this.permutation[A + 1], x, y - 1), this.grad(this.permutation[B + 1], x - 1, y - 1), u),
+            v
+        );
+    }
+    
+    octaveNoise(x, y, octaves, persistence) {
+        let total = 0;
+        let frequency = 1;
+        let amplitude = 1;
+        let maxValue = 0;
+        
+        for (let i = 0; i < octaves; i++) {
+            total += this.noise2D(x * frequency, y * frequency) * amplitude;
+            maxValue += amplitude;
+            amplitude *= persistence;
+            frequency *= 2;
+        }
+        
+        return total / maxValue;
+    }
+}
+
+// ============================================
+// Chunk Class
+// ============================================
+class Chunk {
+    constructor(cx, cz, noiseGen) {
+        this.cx = cx;
+        this.cz = cz;
+        this.blocks = new Uint8Array(CHUNK_SIZE * 256 * CHUNK_SIZE);
+        this.lightMap = new Uint8Array(CHUNK_SIZE * 256 * CHUNK_SIZE);
+        this.mesh = null;
+        this.dirty = true;
+        this.generated = false;
+        this.biome = null;
+        
+        this.generate(noiseGen);
+    }
+    
+    getIndex(x, y, z) {
+        return x + z * CHUNK_SIZE + y * CHUNK_SIZE * CHUNK_SIZE;
+    }
+    
+    getBlock(x, y, z) {
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= 256 || z < 0 || z >= CHUNK_SIZE) {
+            return BLOCKS.AIR;
+        }
+        return this.blocks[this.getIndex(x, y, z)];
+    }
+    
+    setBlock(x, y, z, block) {
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= 256 || z < 0 || z >= CHUNK_SIZE) {
+            return false;
+        }
+        this.blocks[this.getIndex(x, y, z)] = block;
+        this.dirty = true;
+        this.updateLight(x, y, z);
+        return true;
+    }
+    
+    generate(noiseGen) {
+        // Determinar bioma baseado na posição do chunk
+        const biomeNoise = noiseGen.octaveNoise(this.cx * 0.1, this.cz * 0.1, 2, 0.5);
+        if (biomeNoise > 0.3) {
+            this.biome = BIOMES.SNOW;
+        } else if (biomeNoise < -0.2) {
+            this.biome = BIOMES.DESERT;
+        } else {
+            this.biome = BIOMES.FOREST;
+        }
+        
+        // Gerar terreno
+        for (let x = 0; x < CHUNK_SIZE; x++) {
+            for (let z = 0; z < CHUNK_SIZE; z++) {
+                const worldX = this.cx * CHUNK_SIZE + x;
+                const worldZ = this.cz * CHUNK_SIZE + z;
+                
+                // Altura do terreno
+                const heightNoise = noiseGen.octaveNoise(worldX * 0.02, worldZ * 0.02, 4, 0.5);
+                const height = Math.floor((heightNoise + 1) * 30 + 50);
+                
+                // Cavernas
+                const caveNoise = noiseGen.octaveNoise(worldX * 0.05, worldZ * 0.05, 2, 0.5);
+                
+                for (let y = 0; y < 256; y++) {
+                    let block = BLOCKS.AIR;
+                    
+                    if (y === 0) {
+                        block = BLOCKS.BEDROCK;
+                    } else if (y < height - 4) {
+                        // Subsuperfície
+                        if (caveNoise > 0.6) {
+                            block = BLOCKS.AIR; // Caverna
+                        } else {
+                            block = BLOCKS.STONE;
+                            
+                            // Minérios
+                            if (y < 80 && Math.random() < 0.02) {
+                                block = BLOCKS.COAL_ORE;
+                            } else if (y < 50 && Math.random() < 0.015) {
+                                block = BLOCKS.IRON_ORE;
+                            }
+                        }
+                    } else if (y < height) {
+                        block = BLOCKS.DIRT;
+                    } else if (y === height) {
+                        // Superfície baseada no bioma
+                        if (this.biome === BIOMES.DESERT) {
+                            block = BLOCKS.SAND;
+                        } else if (this.biome === BIOMES.SNOW) {
+                            block = BLOCKS.SNOW;
+                        } else {
+                            block = BLOCKS.GRASS;
+                        }
+                    }
+                    
+                    this.blocks[this.getIndex(x, y, z)] = block;
+                }
+                
+                // Água (lagos e oceanos)
+                const waterLevel = 55;
+                if (height < waterLevel) {
+                    for (let y = height + 1; y <= waterLevel; y++) {
+                        this.blocks[this.getIndex(x, y, z)] = BLOCKS.WATER;
+                    }
+                }
+                
+                // Árvores
+                if (this.biome !== BIOMES.DESERT && height > waterLevel) {
+                    if (Math.random() < this.biome.treeChance) {
+                        this.generateTree(x, height + 1, z);
+                    }
+                }
+            }
+        }
+        
+        // Iluminação inicial
+        this.calculateLight();
+        this.generated = true;
+    }
+    
+    generateTree(x, y, z) {
+        const trunkHeight = 4 + Math.floor(Math.random() * 3);
+        
+        // Tronco
+        for (let ty = 0; ty < trunkHeight; ty++) {
+            if (y + ty < 256) {
+                this.blocks[this.getIndex(x, y + ty, z)] = BLOCKS.LOG;
+            }
+        }
+        
+        // Folhas
+        const leafStart = y + trunkHeight - 2;
+        for (let ly = 0; ly < 3; ly++) {
+            for (let lx = -2; lx <= 2; lx++) {
+                for (let lz = -2; lz <= 2; lz++) {
+                    const leafY = leafStart + ly;
+                    if (leafY >= 256) continue;
+                    if (lx === 0 && lz === 0 && ly < 2) continue; // Tronco
+                    
+                    const dist = Math.abs(lx) + Math.abs(lz);
+                    if (dist <= 2 + (ly === 1 ? 1 : 0)) {
+                        const idx = this.getIndex(x + lx, leafY, z + lz);
+                        if (this.blocks[idx] === BLOCKS.AIR) {
+                            this.blocks[idx] = BLOCKS.LEAVES;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    calculateLight() {
+        // Reset light map
+        this.lightMap.fill(0);
+        
+        // Sky light from top
+        for (let x = 0; x < CHUNK_SIZE; x++) {
+            for (let z = 0; z < CHUNK_SIZE; z++) {
+                let light = 15;
+                for (let y = 255; y >= 0; y--) {
+                    const block = this.getBlock(x, y, z);
+                    if (block !== BLOCKS.AIR && block !== BLOCKS.WATER && block !== BLOCKS.LEAVES) {
+                        light = 0;
+                    }
+                    this.lightMap[this.getIndex(x, y, z)] = light;
+                    if (light > 0) light--;
+                }
+            }
+        }
+    }
+    
+    updateLight(x, y, z) {
+        // Simple light recalculation
+        this.calculateLight();
+    }
+    
+    buildMesh() {
+        if (!this.dirty) return;
+        
+        const faces = [];
+        
+        for (let x = 0; x < CHUNK_SIZE; x++) {
+            for (let y = 0; y < 256; y++) {
+                for (let z = 0; z < CHUNK_SIZE; z++) {
+                    const block = this.getBlock(x, y, z);
+                    if (block === BLOCKS.AIR) continue;
+                    
+                    // Check each face
+                    this.addFace(faces, x, y, z, block, 1, 0, 0, 'right');
+                    this.addFace(faces, x, y, z, block, -1, 0, 0, 'left');
+                    this.addFace(faces, x, y, z, block, 0, 1, 0, 'top');
+                    this.addFace(faces, x, y, z, block, 0, -1, 0, 'bottom');
+                    this.addFace(faces, x, y, z, block, 0, 0, 1, 'front');
+                    this.addFace(faces, x, y, z, block, 0, 0, -1, 'back');
+                }
+            }
+        }
+        
+        this.mesh = faces;
+        this.dirty = false;
+    }
+    
+    addFace(faces, x, y, z, block, dx, dy, dz, side) {
+        const nx = x + dx;
+        const ny = y + dy;
+        const nz = z + dz;
+        
+        // Get neighbor block
+        let neighbor;
+        if (nx < 0 || nx >= CHUNK_SIZE || nz < 0 || nz >= CHUNK_SIZE) {
+            neighbor = BLOCKS.AIR; // Will be handled by adjacent chunk
+        } else {
+            neighbor = this.getBlock(nx, ny, nz);
+        }
+        
+        // Only add face if neighbor is transparent
+        if (neighbor !== BLOCKS.AIR && neighbor !== BLOCKS.WATER && neighbor !== BLOCKS.LEAVES) {
+            return;
+        }
+        
+        const colors = BLOCK_COLORS[block];
+        let color;
+        
+        if (side === 'top' && colors.top) {
+            color = colors.top;
+        } else if (side === 'bottom' && colors.bottom) {
+            color = colors.bottom;
+        } else if (colors.side) {
+            color = colors.side;
+        } else if (colors.all) {
+            color = colors.all;
+        } else {
+            color = '#ff00ff';
+        }
+        
+        // Add quad vertices
+        const px = this.cx * CHUNK_SIZE + x;
+        const pz = this.cz * CHUNK_SIZE + z;
+        
+        // Simple quad with position and color
+        faces.push({
+            x: px, y: y, z: pz,
+            dx: dx, dy: dy, dz: dz,
+            color: color,
+            light: this.lightMap[this.getIndex(x, y, z)] / 15
+        });
+    }
+}
+
+// ============================================
+// Player Class
+// ============================================
+class Player {
+    constructor() {
+        this.x = 0;
+        this.y = 100;
+        this.z = 0;
+        this.vx = 0;
+        this.vy = 0;
+        this.vz = 0;
+        this.yaw = 0;
+        this.pitch = 0;
+        this.health = 100;
+        this.hunger = 100;
+        this.onGround = false;
+        this.sprinting = false;
+        this.invincible = 0;
+    }
+    
+    update(dt, world) {
+        // Gravity
+        this.vy -= GRAVITY * dt;
+        
+        // Apply velocity
+        this.x += this.vx * dt;
+        this.checkCollision('x');
+        
+        this.y += this.vy * dt;
+        this.checkCollision('y');
+        
+        this.z += this.vz * dt;
+        this.checkCollision('z');
+        
+        // Friction
+        this.vx *= 0.8;
+        this.vz *= 0.8;
+        
+        // Invincibility frames
+        if (this.invincible > 0) this.invincible -= dt;
+        
+        // Hunger decay
+        if (this.sprinting && (Math.abs(this.vx) > 0.1 || Math.abs(this.vz) > 0.1)) {
+            this.hunger -= dt * 0.5;
+        }
+        
+        // Health regeneration
+        if (this.hunger > 90 && this.health < 100) {
+            this.health += dt * 2;
+        }
+        
+        // Clamp values
+        this.hunger = Math.max(0, Math.min(100, this.hunger));
+        this.health = Math.max(0, Math.min(100, this.health));
+        
+        // Fall damage
+        if (this.y < -50) {
+            this.damage(100, 'Queda nas profundezas');
+        }
+    }
+    
+    checkCollision(axis) {
+        const width = 0.3;
+        const height = 1.7;
+        
+        const minX = Math.floor(this.x - width);
+        const maxX = Math.floor(this.x + width);
+        const minY = Math.floor(this.y);
+        const maxY = Math.floor(this.y + height);
+        const minZ = Math.floor(this.z - width);
+        const maxZ = Math.floor(this.z + width);
+        
+        for (let x = minX; x <= maxX; x++) {
+            for (let y = minY; y <= maxY; y++) {
+                for (let z = minZ; z <= maxZ; z++) {
+                    const block = world.getBlock(x, y, z);
+                    if (block !== BLOCKS.AIR && block !== BLOCKS.WATER) {
+                        if (axis === 'x') {
+                            this.vx = 0;
+                            if (this.vx > 0) {
+                                this.x = x - width - 0.001;
+                            } else {
+                                this.x = x + 1 + width + 0.001;
+                            }
+                        } else if (axis === 'y') {
+                            if (this.vy < 0) {
+                                this.onGround = true;
+                                this.y = y + 1;
+                            } else {
+                                this.y = y - height - 0.001;
+                            }
+                            this.vy = 0;
+                        } else if (axis === 'z') {
+                            this.vz = 0;
+                            if (this.vz > 0) {
+                                this.z = z - width - 0.001;
+                            } else {
+                                this.z = z + 1 + width + 0.001;
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+        
+        if (axis === 'y') {
+            this.onGround = false;
+        }
+    }
+    
+    jump() {
+        if (this.onGround) {
+            this.vy = JUMP_FORCE;
+            this.onGround = false;
+        }
+    }
+    
+    move(forward, right, sprint) {
+        this.sprinting = sprint && forward !== 0;
+        const speed = this.sprinting ? SPRINT_SPEED : PLAYER_SPEED;
+        
+        const sin = Math.sin(this.yaw);
+        const cos = Math.cos(this.yaw);
+        
+        this.vx = (forward * cos - right * sin) * speed;
+        this.vz = (forward * sin + right * cos) * speed;
+    }
+    
+    damage(amount, reason) {
+        if (this.invincible > 0) return;
+        
+        this.health -= amount;
+        this.invincible = 1;
+        
+        if (this.health <= 0) {
+            game.playerDeath(reason);
+        }
+    }
+    
+    heal(amount) {
+        this.health = Math.min(100, this.health + amount);
+    }
+}
+
+// ============================================
+// Monster Class
+// ============================================
+class Monster {
+    constructor(x, y, z, type) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.type = type; // 'zombie' or 'skeleton'
+        this.health = type === 'zombie' ? 20 : 15;
+        this.speed = type === 'zombie' ? 2 : 1.5;
+        this.damage = type === 'zombie' ? 5 : 8;
+        this.attackCooldown = 0;
+        this.state = 'wander';
+        this.targetX = x;
+        this.targetZ = z;
+        this.wanderTimer = 0;
+    }
+    
+    update(dt, player, world) {
+        // Check if should despawn (daytime)
+        if (game.timeOfDay > 0.25 && game.timeOfDay < 0.75) {
+            // Sun is up, zombies burn
+            if (this.type === 'zombie' && this.y > world.getHighestBlock(Math.floor(this.x), Math.floor(this.z))) {
+                this.health -= dt * 10;
+            }
+        }
+        
+        if (this.health <= 0) return false; // Dead
+        
+        const dx = player.x - this.x;
+        const dz = player.z - this.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        const dy = (player.y + 0.8) - this.y;
+        
+        // AI Behavior
+        if (dist < 15 && dist > 0.5) {
+            // Chase player
+            this.state = 'chase';
+            const angle = Math.atan2(dz, dx);
+            this.x += Math.cos(angle) * this.speed * dt;
+            this.z += Math.sin(angle) * this.speed * dt;
+        } else if (dist <= 0.5) {
+            // Attack
+            this.state = 'attack';
+            if (this.attackCooldown <= 0) {
+                player.damage(this.damage, `Atacado por ${this.type === 'zombie' ? 'Zumbi' : 'Esqueleto'}`);
+                this.attackCooldown = 1.5;
+            }
+        } else {
+            // Wander
+            this.state = 'wander';
+            this.wanderTimer -= dt;
+            if (this.wanderTimer <= 0) {
+                this.wanderTimer = 2 + Math.random() * 3;
+                const angle = Math.random() * Math.PI * 2;
+                this.targetX = this.x + Math.cos(angle) * 5;
+                this.targetZ = this.z + Math.sin(angle) * 5;
+            }
+            
+            const wx = this.targetX - this.x;
+            const wz = this.targetZ - this.z;
+            const wDist = Math.sqrt(wx * wx + wz * wz);
+            if (wDist > 0.5) {
+                this.x += (wx / wDist) * this.speed * 0.5 * dt;
+                this.z += (wz / wDist) * this.speed * 0.5 * dt;
+            }
+        }
+        
+        // Simple gravity
+        const below = world.getBlock(Math.floor(this.x), Math.floor(this.y - 1), Math.floor(this.z));
+        if (below === BLOCKS.AIR || below === BLOCKS.WATER) {
+            this.y -= 5 * dt;
+        }
+        
+        if (this.attackCooldown > 0) this.attackCooldown -= dt;
+        
+        return true; // Still alive
+    }
+    
+    render(ctx, cameraX, cameraY, cameraZ) {
+        const screenX = (this.x - cameraX) * 50 + 400;
+        const screenY = 300 - (this.y - cameraY) * 50;
+        
+        if (screenX < -50 || screenX > 850 || screenY < -50 || screenY > 650) return;
+        
+        ctx.save();
+        ctx.translate(screenX, screenY);
+        
+        // Draw monster based on type
+        if (this.type === 'zombie') {
+            ctx.fillStyle = '#2d5a27';
+        } else {
+            ctx.fillStyle = '#d4c4a8';
+        }
+        
+        // Body
+        ctx.fillRect(-15, -30, 30, 40);
+        
+        // Head
+        ctx.fillStyle = this.type === 'zombie' ? '#3d6a37' : '#e4d4b8';
+        ctx.fillRect(-12, -50, 24, 20);
+        
+        // Eyes
+        ctx.fillStyle = this.type === 'zombie' ? '#ff0000' : '#333333';
+        ctx.fillRect(-6, -45, 5, 5);
+        ctx.fillRect(6, -45, 5, 5);
+        
+        // Health bar
+        ctx.fillStyle = '#333';
+        ctx.fillRect(-20, -60, 40, 5);
+        ctx.fillStyle = '#e74c3c';
+        ctx.fillRect(-20, -60, 40 * (this.health / (this.type === 'zombie' ? 20 : 15)), 5);
+        
+        ctx.restore();
+    }
+}
+
+// ============================================
+// Particle System
+// ============================================
+class Particle {
+    constructor(x, y, z, color, vx, vy, vz, life) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.color = color;
+        this.vx = vx;
+        this.vy = vy;
+        this.vz = vz;
+        this.life = life;
+        this.maxLife = life;
+    }
+    
+    update(dt) {
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+        this.z += this.vz * dt;
+        this.vy -= 10 * dt;
+        this.life -= dt;
+        return this.life > 0;
+    }
+}
+
+// ============================================
+// World Class
+// ============================================
+class World {
+    constructor() {
+        this.chunks = new Map();
+        this.noiseGen = new NoiseGenerator();
+        this.monsters = [];
+        this.particles = [];
+        this.lastMonsterSpawn = 0;
+    }
+    
+    getChunkKey(cx, cz) {
+        return `${cx},${cz}`;
+    }
+    
+    getChunk(cx, cz) {
+        const key = this.getChunkKey(cx, cz);
+        if (!this.chunks.has(key)) {
+            const chunk = new Chunk(cx, cz, this.noiseGen);
+            this.chunks.set(key, chunk);
+        }
+        return this.chunks.get(key);
+    }
+    
+    getBlock(x, y, z) {
+        const cx = Math.floor(x / CHUNK_SIZE);
+        const cz = Math.floor(z / CHUNK_SIZE);
+        const chunk = this.getChunk(cx, cz);
+        const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+        const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+        return chunk.getBlock(lx, y, lz);
+    }
+    
+    setBlock(x, y, z, block) {
+        const cx = Math.floor(x / CHUNK_SIZE);
+        const cz = Math.floor(z / CHUNK_SIZE);
+        const chunk = this.getChunk(cx, cz);
+        const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+        const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+        return chunk.setBlock(lx, y, lz, block);
+    }
+    
+    getHighestBlock(x, z) {
+        for (let y = 255; y >= 0; y--) {
+            const block = this.getBlock(x, y, z);
+            if (block !== BLOCKS.AIR) {
+                return y + 1;
+            }
+        }
+        return 0;
+    }
+    
+    updateChunks(playerX, playerZ) {
+        const playerCx = Math.floor(playerX / CHUNK_SIZE);
+        const playerCz = Math.floor(playerZ / CHUNK_SIZE);
+        
+        // Load nearby chunks
+        for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
+            for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
+                this.getChunk(playerCx + dx, playerCz + dz);
+            }
+        }
+        
+        // Unload far chunks
+        for (const [key, chunk] of this.chunks) {
+            if (Math.abs(chunk.cx - playerCx) > RENDER_DISTANCE + 2 ||
+                Math.abs(chunk.cz - playerCz) > RENDER_DISTANCE + 2) {
+                this.chunks.delete(key);
+            }
+        }
+    }
+    
+    spawnMonster(player) {
+        if (game.timeOfDay > 0.2 && game.timeOfDay < 0.8) return; // No monsters during day
+        
+        const now = Date.now();
+        if (now - this.lastMonsterSpawn < 3000) return;
+        
+        if (this.monsters.length >= 20) return;
+        
+        // Spawn behind player
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 15 + Math.random() * 10;
+        const x = player.x + Math.cos(angle) * dist;
+        const z = player.z + Math.sin(angle) * dist;
+        const y = this.getHighestBlock(Math.floor(x), Math.floor(z)) + 0.5;
+        
+        if (y > 0 && y < 200) {
+            const type = Math.random() < 0.6 ? 'zombie' : 'skeleton';
+            this.monsters.push(new Monster(x, y, z, type));
+            this.lastMonsterSpawn = now;
+        }
+    }
+    
+    addParticles(x, y, z, color, count) {
+        for (let i = 0; i < count; i++) {
+            this.particles.push(new Particle(
+                x, y, z, color,
+                (Math.random() - 0.5) * 5,
+                Math.random() * 5,
+                (Math.random() - 0.5) * 5,
+                1 + Math.random()
+            ));
+        }
+    }
+    
+    update(dt, player) {
+        // Update monsters
+        this.monsters = this.monsters.filter(m => m.update(dt, player, this));
+        
+        // Update particles
+        this.particles = this.particles.filter(p => p.update(dt));
+        
+        // Spawn monsters
+        this.spawnMonster(player);
+    }
+}
+
+// ============================================
+// Game Class (Main)
+// ============================================
+class Game {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        
+        this.state = 'menu'; // menu, playing, paused, crafting, dead
+        this.world = null;
+        this.player = null;
+        this.inventory = new Array(9).fill(BLOCKS.AIR);
+        this.selectedSlot = 0;
+        this.inventoryCount = new Array(9).fill(0);
+        
+        this.timeOfDay = 0.5; // 0-1 cycle
+        this.weather = 'clear';
+        
+        this.keys = {};
+        this.mouseX = 0;
+        this.mouseY = 0;
+        this.mouseDown = false;
+        this.rightMouseDown = false;
+        
+        this.lastTime = 0;
+        this.fps = 0;
+        this.frameCount = 0;
+        this.fpsTimer = 0;
+        
+        this.setupInput();
+        this.updateHotbar();
+    }
+    
+    resize() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+    }
+    
+    setupInput() {
+        document.addEventListener('keydown', (e) => {
+            this.keys[e.code] = true;
+            
+            if (this.state === 'playing') {
+                if (e.code >= 'Digit1' && e.code <= 'Digit9') {
+                    this.selectedSlot = parseInt(e.code.replace('Digit', '')) - 1;
+                    this.updateHotbar();
+                }
+                if (e.code === 'KeyE') {
+                    this.toggleCrafting();
+                }
+                if (e.code === 'Escape') {
+                    this.pause();
+                }
+                if (e.code === 'Space') {
+                    this.player.jump();
+                }
+            } else if (this.state === 'paused' && e.code === 'Escape') {
+                this.resume();
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            this.keys[e.code] = false;
+        });
+        
+        this.canvas.addEventListener('click', () => {
+            if (this.state === 'playing') {
+                this.canvas.requestPointerLock();
+                this.mouseDown = true;
+                this.handleBlockAction('break');
+            }
+        });
+        
+        this.canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (this.state === 'playing') {
+                this.rightMouseDown = true;
+                this.handleBlockAction('place');
+            }
+        });
+        
+        this.canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0) this.mouseDown = true;
+            if (e.button === 2) this.rightMouseDown = true;
+        });
+        
+        this.canvas.addEventListener('mouseup', () => {
+            this.mouseDown = false;
+            this.rightMouseDown = false;
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement === this.canvas && this.state === 'playing') {
+                this.player.yaw += e.movementX * 0.002;
+                this.player.pitch -= e.movementY * 0.002;
+                this.player.pitch = Math.max(-Math.PI/2 + 0.1, Math.min(Math.PI/2 - 0.1, this.player.pitch));
+            }
+        });
+    }
+    
+    handleBlockAction(action) {
+        if (!this.player || !this.world) return;
+        
+        const reach = REACH;
+        const dx = -Math.sin(this.player.yaw) * Math.cos(this.player.pitch);
+        const dy = Math.sin(this.player.pitch);
+        const dz = -Math.cos(this.player.yaw) * Math.cos(this.player.pitch);
+        
+        for (let d = 0; d < reach; d += 0.1) {
+            const x = this.player.x + dx * d;
+            const y = this.player.y + 0.5 + dy * d;
+            const z = this.player.z + dz * d;
+            
+            const block = this.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z));
+            
+            if (block !== BLOCKS.AIR && block !== BLOCKS.WATER) {
+                if (action === 'break') {
+                    if (block !== BLOCKS.BEDROCK) {
+                        this.world.setBlock(Math.floor(x), Math.floor(y), Math.floor(z), BLOCKS.AIR);
+                        this.addToInventory(block, 1);
+                        this.world.addParticles(x, y, z, BLOCK_COLORS[block].all || '#888', 5);
+                    }
+                } else if (action === 'place') {
+                    const placeBlock = this.inventory[this.selectedSlot];
+                    if (placeBlock !== BLOCKS.AIR) {
+                        // Check if player is not in the way
+                        const px = Math.floor(this.player.x);
+                        const py = Math.floor(this.player.y);
+                        const pz = Math.floor(this.player.z);
+                        
+                        if (!(Math.floor(x) === px && Math.floor(y) === py && Math.floor(z) === pz) &&
+                            !(Math.floor(x) === px && Math.floor(y) === py + 1 && Math.floor(z) === pz)) {
+                            
+                            if (this.world.setBlock(Math.floor(x), Math.floor(y), Math.floor(z), placeBlock)) {
+                                this.removeFromInventory(this.selectedSlot, 1);
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+    
+    addToInventory(block, count) {
+        // Try to stack first
+        for (let i = 0; i < this.inventory.length; i++) {
+            if (this.inventory[i] === block && this.inventoryCount[i] < 64) {
+                this.inventoryCount[i] += count;
+                this.updateHotbar();
+                return;
+            }
+        }
+        
+        // Find empty slot
+        for (let i = 0; i < this.inventory.length; i++) {
+            if (this.inventory[i] === BLOCKS.AIR) {
+                this.inventory[i] = block;
+                this.inventoryCount[i] = count;
+                this.updateHotbar();
+                return;
+            }
+        }
+    }
+    
+    removeFromInventory(slot, count) {
+        this.inventoryCount[slot] -= count;
+        if (this.inventoryCount[slot] <= 0) {
+            this.inventory[slot] = BLOCKS.AIR;
+            this.inventoryCount[slot] = 0;
+        }
+        this.updateHotbar();
+    }
+    
+    updateHotbar() {
+        const hotbar = document.getElementById('hotbar');
+        hotbar.innerHTML = '';
+        
+        for (let i = 0; i < 9; i++) {
+            const slot = document.createElement('div');
+            slot.className = 'hotbar-slot' + (i === this.selectedSlot ? ' selected' : '');
+            
+            if (this.inventory[i] !== BLOCKS.AIR) {
+                const colors = BLOCK_COLORS[this.inventory[i]];
+                slot.style.backgroundColor = colors.all || colors.top || '#888';
+                slot.textContent = this.inventoryCount[i];
+            }
+            
+            hotbar.appendChild(slot);
+        }
+    }
+    
+    canCraft(recipe) {
+        for (const [block, count] of Object.entries(recipe.ingredients)) {
+            let available = 0;
+            for (let i = 0; i < this.inventory.length; i++) {
+                if (this.inventory[i] === parseInt(block)) {
+                    available += this.inventoryCount[i];
+                }
+            }
+            if (available < count) return false;
+        }
+        return true;
+    }
+    
+    craft(recipe) {
+        if (!this.canCraft(recipe)) return;
+        
+        // Remove ingredients
+        for (const [block, count] of Object.entries(recipe.ingredients)) {
+            let remaining = count;
+            for (let i = 0; i < this.inventory.length && remaining > 0; i++) {
+                if (this.inventory[i] === parseInt(block)) {
+                    const take = Math.min(this.inventoryCount[i], remaining);
+                    this.inventoryCount[i] -= take;
+                    remaining -= take;
+                    if (this.inventoryCount[i] <= 0) {
+                        this.inventory[i] = BLOCKS.AIR;
+                    }
+                }
+            }
+        }
+        
+        // Add result
+        this.addToInventory(recipe.result, recipe.count);
+        this.updateHotbar();
+    }
+    
+    toggleCrafting() {
+        if (this.state === 'crafting') {
+            this.state = 'playing';
+            document.getElementById('crafting-screen').classList.add('hidden');
+            this.canvas.requestPointerLock();
+        } else if (this.state === 'playing') {
+            this.state = 'crafting';
+            document.exitPointerLock();
+            this.renderCraftingGrid();
+            document.getElementById('crafting-screen').classList.remove('hidden');
+        }
+    }
+    
+    renderCraftingGrid() {
+        const grid = document.getElementById('crafting-grid');
+        grid.innerHTML = '';
+        
+        RECIPES.forEach((recipe, index) => {
+            const slot = document.createElement('div');
+            slot.className = 'craft-slot';
+            
+            const colors = BLOCK_COLORS[recipe.result];
+            slot.style.backgroundColor = colors.all || colors.top || '#888';
+            
+            const icon = document.createElement('span');
+            icon.className = 'recipe-icon';
+            icon.textContent = 'x' + recipe.count;
+            
+            const name = document.createElement('span');
+            name.className = 'recipe-name';
+            name.textContent = BLOCK_NAMES[recipe.result] || '?';
+            
+            slot.appendChild(icon);
+            slot.appendChild(name);
+            
+            if (!this.canCraft(recipe)) {
+                slot.style.opacity = '0.5';
+            }
+            
+            slot.onclick = () => {
+                if (this.canCraft(recipe)) {
+                    this.craft(recipe);
+                    this.renderCraftingGrid();
+                }
+            };
+            
+            grid.appendChild(slot);
+        });
+    }
+    
+    startNewGame() {
+        document.getElementById('menu-screen').classList.add('hidden');
+        document.getElementById('loading-screen').classList.remove('hidden');
+        
+        setTimeout(() => {
+            this.world = new World();
+            this.player = new Player();
+            
+            // Find spawn point
+            const spawnY = this.world.getHighestBlock(0, 0);
+            this.player.y = spawnY + 2;
+            
+            // Give starter items
+            this.inventory[0] = BLOCKS.LOG;
+            this.inventoryCount[0] = 10;
+            
+            this.timeOfDay = 0.5;
+            this.state = 'playing';
+            
+            document.getElementById('loading-screen').classList.add('hidden');
+            this.canvas.requestPointerLock();
+            
+            this.lastTime = performance.now();
+            requestAnimationFrame(() => this.loop());
+        }, 100);
+    }
+    
+    loadGame() {
+        const save = localStorage.getItem('voxelcraft_save');
+        if (!save) {
+            alert('Nenhum jogo salvo encontrado!');
+            return;
+        }
+        
+        try {
+            const data = JSON.parse(save);
+            
+            document.getElementById('menu-screen').classList.add('hidden');
+            document.getElementById('loading-screen').classList.remove('hidden');
+            
+            setTimeout(() => {
+                this.world = new World();
+                this.player = new Player();
+                
+                this.player.x = data.player.x;
+                this.player.y = data.player.y;
+                this.player.z = data.player.z;
+                this.player.health = data.player.health;
+                this.player.hunger = data.player.hunger;
+                
+                this.inventory = data.inventory;
+                this.inventoryCount = data.inventoryCount;
+                
+                this.timeOfDay = data.timeOfDay;
+                
+                // Load chunks
+                if (data.chunks) {
+                    for (const chunkData of data.chunks) {
+                        const key = this.world.getChunkKey(chunkData.cx, chunkData.cz);
+                        const chunk = new Chunk(chunkData.cx, chunkData.cz, this.world.noiseGen);
+                        chunk.blocks = new Uint8Array(chunkData.blocks);
+                        this.world.chunks.set(key, chunk);
+                    }
+                }
+                
+                this.state = 'playing';
+                this.updateHotbar();
+                
+                document.getElementById('loading-screen').classList.add('hidden');
+                this.canvas.requestPointerLock();
+                
+                this.lastTime = performance.now();
+                requestAnimationFrame(() => this.loop());
+            }, 100);
+        } catch (e) {
+            console.error('Failed to load save:', e);
+            alert('Erro ao carregar o jogo salvo.');
+        }
+    }
+    
+    saveGame() {
+        if (!this.world || !this.player) return;
+        
+        const data = {
+            player: {
+                x: this.player.x,
+                y: this.player.y,
+                z: this.player.z,
+                health: this.player.health,
+                hunger: this.player.hunger
+            },
+            inventory: this.inventory,
+            inventoryCount: this.inventoryCount,
+            timeOfDay: this.timeOfDay,
+            chunks: []
+        };
+        
+        for (const [key, chunk] of this.world.chunks) {
+            data.chunks.push({
+                cx: chunk.cx,
+                cz: chunk.cz,
+                blocks: Array.from(chunk.blocks)
+            });
+        }
+        
+        localStorage.setItem('voxelcraft_save', JSON.stringify(data));
+    }
+    
+    saveAndQuit() {
+        this.saveGame();
+        this.state = 'menu';
+        document.exitPointerLock();
+        document.getElementById('pause-screen').classList.add('hidden');
+        document.getElementById('menu-screen').classList.remove('hidden');
+    }
+    
+    pause() {
+        if (this.state === 'playing') {
+            this.state = 'paused';
+            document.exitPointerLock();
+            document.getElementById('pause-screen').classList.remove('hidden');
+        }
+    }
+    
+    resume() {
+        if (this.state === 'paused') {
+            this.state = 'playing';
+            this.canvas.requestPointerLock();
+            document.getElementById('pause-screen').classList.add('hidden');
+            this.lastTime = performance.now();
+            requestAnimationFrame(() => this.loop());
+        }
+    }
+    
+    playerDeath(reason) {
+        this.state = 'dead';
+        document.exitPointerLock();
+        document.getElementById('death-reason').textContent = reason;
+        document.getElementById('death-screen').classList.remove('hidden');
+    }
+    
+    respawn() {
+        this.player.health = 100;
+        this.player.hunger = 100;
+        this.player.x = 0;
+        this.player.y = 100;
+        this.player.z = 0;
+        this.player.vx = 0;
+        this.player.vy = 0;
+        this.player.vz = 0;
+        
+        // Find ground
+        const spawnY = this.world.getHighestBlock(0, 0);
+        this.player.y = spawnY + 2;
+        
+        this.state = 'playing';
+        document.getElementById('death-screen').classList.add('hidden');
+        this.canvas.requestPointerLock();
+        this.lastTime = performance.now();
+        requestAnimationFrame(() => this.loop());
+    }
+    
+    update(dt) {
+        // Time cycle (24 minutes = 1 day)
+        this.timeOfDay += dt / 1440;
+        if (this.timeOfDay > 1) this.timeOfDay = 0;
+        
+        // Update player
+        const forward = (this.keys['KeyW'] ? 1 : 0) - (this.keys['KeyS'] ? 1 : 0);
+        const right = (this.keys['KeyD'] ? 1 : 0) - (this.keys['KeyA'] ? 1 : 0);
+        const sprint = this.keys['ShiftLeft'] || this.keys['ShiftRight'];
+        
+        this.player.move(forward, right, sprint);
+        this.player.update(dt, this.world);
+        
+        // Update world
+        this.world.update(dt, this.player);
+        
+        // Update chunks
+        this.world.updateChunks(this.player.x, this.player.z);
+        
+        // Auto-save every minute
+        if (Math.floor(Date.now() / 60000) > Math.floor(this.lastTime / 60000)) {
+            this.saveGame();
+        }
+        
+        // Continuous block breaking/placing
+        if (this.mouseDown) {
+            this.handleBlockAction('break');
+        }
+        if (this.rightMouseDown) {
+            this.handleBlockAction('place');
+        }
+        
+        // Update UI
+        this.updateUI();
+    }
+    
+    updateUI() {
+        document.getElementById('health-bar').style.width = this.player.health + '%';
+        document.getElementById('hunger-bar').style.width = this.player.hunger + '%';
+        document.getElementById('position').textContent = 
+            `${Math.floor(this.player.x)}, ${Math.floor(this.player.y)}, ${Math.floor(this.player.z)}`;
+        document.getElementById('chunk-count').textContent = this.world.chunks.size;
+        
+        // Get current biome
+        const cx = Math.floor(this.player.x / CHUNK_SIZE);
+        const cz = Math.floor(this.player.z / CHUNK_SIZE);
+        const chunk = this.world.getChunk(cx, cz);
+        document.getElementById('biome').textContent = chunk.biome?.name || '-';
+        
+        // Time display
+        let timeText = 'Dia';
+        if (this.timeOfDay < 0.2 || this.timeOfDay > 0.85) {
+            timeText = 'Noite';
+        } else if (this.timeOfDay < 0.3) {
+            timeText = 'Nascer do Sol';
+        } else if (this.timeOfDay > 0.7) {
+            timeText = 'Pôr do Sol';
+        }
+        document.getElementById('time-display').textContent = timeText;
+    }
+    
+    render() {
+        const ctx = this.ctx;
+        const width = this.canvas.width;
+        const height = this.canvas.height;
+        
+        // Sky gradient based on time of day
+        const skyColors = this.getSkyColors();
+        const gradient = ctx.createLinearGradient(0, 0, 0, height);
+        gradient.addColorStop(0, skyColors.top);
+        gradient.addColorStop(1, skyColors.bottom);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, width, height);
+        
+        // Render blocks using raycasting-like approach
+        this.renderBlocks();
+        
+        // Render monsters
+        for (const monster of this.world.monsters) {
+            monster.render(ctx, this.player.x - width / 100, this.player.y, this.player.z - height / 100);
+        }
+        
+        // Render particles
+        for (const particle of this.world.particles) {
+            const screenX = (particle.x - this.player.x) * 50 + width / 2;
+            const screenY = height / 2 - (particle.y - this.player.y) * 50;
+            const alpha = particle.life / particle.maxLife;
+            
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = particle.color;
+            ctx.fillRect(screenX - 3, screenY - 3, 6, 6);
+            ctx.globalAlpha = 1;
+        }
+        
+        // Vignette effect for darkness in caves/night
+        this.renderLighting();
+    }
+    
+    getSkyColors() {
+        const t = this.timeOfDay;
+        
+        if (t < 0.2) {
+            // Night to sunrise
+            return { top: '#0a0a1a', bottom: '#1a1a3a' };
+        } else if (t < 0.25) {
+            // Sunrise
+            return { top: '#ff6b35', bottom: '#ffd93d' };
+        } else if (t < 0.7) {
+            // Day
+            return { top: '#4a90d9', bottom: '#87ceeb' };
+        } else if (t < 0.75) {
+            // Sunset
+            return { top: '#ff4500', bottom: '#ff8c00' };
+        } else {
+            // Night
+            return { top: '#0a0a1a', bottom: '#1a1a3a' };
+        }
+    }
+    
+    renderBlocks() {
+        const ctx = this.ctx;
+        const width = this.canvas.width;
+        const height = this.canvas.height;
+        
+        const fov = 100;
+        const centerX = width / 2;
+        const centerY = height / 2;
+        
+        // Collect all visible faces from nearby chunks
+        const faces = [];
+        const playerCx = Math.floor(this.player.x / CHUNK_SIZE);
+        const playerCz = Math.floor(this.player.z / CHUNK_SIZE);
+        
+        for (let dx = -2; dx <= 2; dx++) {
+            for (let dz = -2; dz <= 2; dz++) {
+                const chunk = this.world.getChunk(playerCx + dx, playerCz + dz);
+                if (chunk && chunk.mesh) {
+                    for (const face of chunk.mesh) {
+                        // Check if face is facing player
+                        const fdx = face.x + face.dx * 0.5 - this.player.x;
+                        const fdy = face.y + face.dy * 0.5 - this.player.y;
+                        const fdz = face.z + face.dz * 0.5 - this.player.z;
+                        
+                        const dot = face.dx * fdx + face.dy * fdy + face.dz * fdz;
+                        if (dot < 0) continue; // Face pointing away
+                        
+                        faces.push(face);
+                    }
+                }
+            }
+        }
+        
+        // Sort by distance (painter's algorithm)
+        faces.sort((a, b) => {
+            const distA = (a.x - this.player.x) ** 2 + (a.y - this.player.y) ** 2 + (a.z - this.player.z) ** 2;
+            const distB = (b.x - this.player.x) ** 2 + (b.y - this.player.y) ** 2 + (b.z - this.player.z) ** 2;
+            return distB - distA;
+        });
+        
+        // Draw faces
+        for (const face of faces) {
+            const relX = face.x - this.player.x;
+            const relY = face.y - this.player.y;
+            const relZ = face.z - this.player.z;
+            
+            // Simple projection
+            const scale = fov / (fov + relZ * Math.cos(this.player.yaw) - relX * Math.sin(this.player.yaw));
+            
+            const rotX = relX * Math.cos(this.player.yaw) + relZ * Math.sin(this.player.yaw);
+            const rotZ = -relX * Math.sin(this.player.yaw) + relZ * Math.cos(this.player.yaw);
+            
+            if (rotZ < 0.5) continue; // Behind camera
+            
+            const screenX = centerX + rotX * scale * 50;
+            const screenY = centerY - (relY - Math.tan(this.player.pitch) * rotZ) * scale * 50;
+            
+            const size = scale * 50;
+            
+            if (screenX < -size || screenX > width + size || screenY < -size || screenY > height + size) continue;
+            
+            // Apply lighting
+            const lightFactor = 0.3 + 0.7 * face.light;
+            ctx.fillStyle = this.adjustColorBrightness(face.color, lightFactor);
+            
+            // Draw quad
+            ctx.beginPath();
+            ctx.rect(screenX - size/2, screenY - size/2, size, size);
+            ctx.fill();
+            
+            // Edge highlight
+            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+    }
+    
+    adjustColorBrightness(hex, factor) {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        
+        const nr = Math.round(r * factor);
+        const ng = Math.round(g * factor);
+        const nb = Math.round(b * factor);
+        
+        return `rgb(${nr}, ${ng}, ${nb})`;
+    }
+    
+    renderLighting() {
+        const ctx = this.ctx;
+        const width = this.canvas.width;
+        const height = this.canvas.height;
+        
+        // Night darkness overlay
+        if (this.timeOfDay < 0.25 || this.timeOfDay > 0.75) {
+            const darkness = this.timeOfDay < 0.25 
+                ? Math.max(0, 0.5 - this.timeOfDay * 2)
+                : Math.max(0, (this.timeOfDay - 0.75) * 2);
+            
+            ctx.fillStyle = `rgba(0, 0, 20, ${darkness * 0.5})`;
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // Indoor/cave darkness
+        const blockAbove = this.world.getBlock(
+            Math.floor(this.player.x),
+            Math.floor(this.player.y + 2),
+            Math.floor(this.player.z)
+        );
+        
+        if (blockAbove !== BLOCKS.AIR && blockAbove !== BLOCKS.WATER) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+        }
+    }
+    
+    loop() {
+        if (this.state !== 'playing') return;
+        
+        const now = performance.now();
+        const dt = Math.min((now - this.lastTime) / 1000, 0.1);
+        this.lastTime = now;
+        
+        // FPS counter
+        this.frameCount++;
+        this.fpsTimer += dt;
+        if (this.fpsTimer >= 1) {
+            this.fps = this.frameCount;
+            this.frameCount = 0;
+            this.fpsTimer = 0;
+            document.getElementById('fps').textContent = this.fps;
+        }
+        
+        this.update(dt);
+        this.render();
+        
+        requestAnimationFrame(() => this.loop());
+    }
+}
+
+// ============================================
+// Initialize Game
+// ============================================
+const game = new Game();
+    </script>
+</body>
+</html>
